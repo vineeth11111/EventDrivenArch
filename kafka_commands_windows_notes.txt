@@ -1,26 +1,253 @@
-STEP 1: DOWNLOAD AND INSTALL KAFKA
-https://dlcdn.apache.org/kafka/3.2.0/kafka_2.13-3.2.0.tgz
+Building Messaging Queue communication from scratch using Spring Boot 3.2.x.
 
-STEP 2: START THE KAFKA ENVIRONMENT
-# Start the ZooKeeper service
-C:\Users\RAMESH\Downloads\kafka>.\bin\windows\zookeeper-server-start.bat .\config\zookeeper.properties
 
-# Start the Kafka broker service
-C:\Users\RAMESH\Downloads\kafka>.\bin\windows\kafka-server-start.bat .\config\server.properties
+Producer    --->   put the data into the topic -----> Consumer1, consumer2
 
-STEP 3: CREATE A TOPIC TO STORE YOUR EVENTS
-C:\Users\RAMESH\Downloads\kafka>.\bin\windows\kafka-topics.bat --create --topic topic_demo --bootstrap-server localhost:9092
+Main STEP 1 :
+=========
+             Creating Apache Kafka Setup..
+			 
+			 -> Download from the given link  https://dlcdn.apache.org/kafka/3.8.0/kafka_2.13-3.8.0.tgz
+			 
+			 -> UnZip it. Change the folder name to kafka..
+			 
+			 -> 
+			 
+			 STEP 1: DOWNLOAD AND INSTALL KAFKA
+                      https://dlcdn.apache.org/kafka/3.2.0/kafka_2.13-3.2.0.tgz
 
-STEP 4: WRITE SOME EVENTS INTO THE TOPIC
-C:\Users\RAMESH\Downloads\kafka>.\bin\windows\kafka-console-producer.bat --topic topic_demo --bootstrap-server localhost:9092
->hello world
->topic demo
+             STEP 2: START THE KAFKA ENVIRONMENT
+              # Start the ZooKeeper service
+               C:\kafka>.\bin\windows\zookeeper-server-start.bat .\config\zookeeper.properties
 
-STEP 5:  READ THE EVENTS
-C:\Users\RAMESH\Downloads\kafka>.\bin\windows\kafka-console-consumer.bat --topic topic_demo --from-beginning --bootstrap-server localhost:9092
-hello world
-topic demo
+              # Start the Kafka broker service
+              C:\kafka>.\bin\windows\kafka-server-start.bat .\config\server.properties
 
-how many topics available in the Message Broker(Apache Kafka)
+               STEP 3: CREATE A TOPIC TO STORE YOUR EVENTS
+              C:\kafka>.\bin\windows\kafka-topics.bat --create --topic topic_demo --bootstrap-server localhost:9092
 
-.\bin\windows\kafka-topics.bat --list --bootstrap-server localhost:9092
+              STEP 4: WRITE SOME EVENTS INTO THE TOPIC
+              C:\kafka>.\bin\windows\kafka-console-producer.bat --topic topic_demo --bootstrap-server localhost:9092
+               >hello world
+              >topic demo
+
+              STEP 5:  READ THE EVENTS
+              C:\kafka>.\bin\windows\kafka-console-consumer.bat --topic topic_demo --from-beginning --bootstrap-server localhost:9092
+              hello world
+              topic demo
+
+             How many topics available in the Message Broker(Apache Kafka)
+
+              C:\kafka>.\bin\windows\kafka-topics.bat --list --bootstrap-server localhost:9092
+			  
+			  
+       After creating topic.......... now the setup is ready for the spring boot application to write and read data from the topic.
+
+===========================================================================================================================================	   
+
+
+Main STEP 2 :
+=========
+
+          1) Creating Producer Application Using Spring Starter Project add dependencies 
+		  
+		  <dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-web</artifactId>
+		</dependency>
+		
+		<dependency>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+		</dependency>
+		
+		
+		
+		  2) Add properties in the application.properties file.
+		  
+		  
+		       
+
+                
+               spring.application.name=order-service
+               server.port=8081
+               spring.kafka.producer.bootstrap-servers=localhost:9092
+               spring.kafka.producer.key-serializer=org.apache.kafka.common.serialization.StringSerializer
+               spring.kafka.producer.value-serializer=org.springframework.kafka.support.serializer.JsonSerializer
+               spring.kafka.template.default-topic=order_topics
+			   
+			   
+		3) Create a topic 
+		
+		
+		package com.luv2code.config;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.config.TopicBuilder;
+
+@Configuration
+public class KafkaTopicConfiguration {
+
+	
+	@Value("${spring.kafka.template.default-topic}")
+	public String topicName;
+	
+	@Bean
+	NewTopic createNewTopic() {
+		
+		return TopicBuilder.name(topicName).build();
+	}
+}
+
+
+       4) sending data through Kafkatemplate..
+	   
+	   
+	   package com.luv2code.service;
+
+import org.apache.kafka.clients.admin.NewTopic;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.stereotype.Service;
+
+import com.luv2code.dto.OrderEvent;
+
+@Service
+public class KafkaProducerService {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(KafkaProducerService.class);
+
+	private NewTopic orderTopic;
+	
+	private KafkaTemplate<String, OrderEvent > kafkaTemplate;
+	
+	KafkaProducerService(NewTopic orderTopic , KafkaTemplate<String, OrderEvent > kafkaTemplate) {
+		this.orderTopic = orderTopic;
+		this.kafkaTemplate = kafkaTemplate;
+	}
+	
+	public void sendMessage(OrderEvent orderEvent) {
+		LOGGER.info(String.format("Order event => %s", orderEvent.toString()));
+		System.out.println("Order event => "+orderEvent.toString());
+		Message<OrderEvent> message = MessageBuilder.
+				withPayload(orderEvent).
+				setHeader(KafkaHeaders.TOPIC, orderTopic.name())
+				.build();
+		kafkaTemplate.send(message);
+	}
+}
+
+
+5) Controller helping order details to the kafka template.
+
+package com.luv2code.controller;
+
+import java.util.UUID;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.luv2code.dto.Order;
+import com.luv2code.dto.OrderEvent;
+import com.luv2code.service.KafkaProducerService;
+
+@RestController
+@RequestMapping("/api/v1")
+public class OrderController {
+
+	private KafkaProducerService kafkaProducerService;
+	
+	OrderController(KafkaProducerService kafkaProducerService) {
+		this.kafkaProducerService = kafkaProducerService;
+	}
+	
+	@PostMapping("/orders")
+	public ResponseEntity<String> placeOrder(@RequestBody Order order) {
+		
+		order.setOrderId(UUID.randomUUID().toString());
+		
+		OrderEvent event = new OrderEvent();
+		event.setStatus("PENDING");
+		event.setMessage("order status is in pending state");
+		event.setOrder(order);
+		
+		kafkaProducerService.sendMessage(event);
+		
+		return ResponseEntity.ok("Order placed successfully");
+	}
+	
+}
+
+=========================================================================================================================================================
+ConsumerApplication
+
+
+Create same Spring boot project with above dependencies..
+
+Add properties..
+
+
+spring.application.name=stock-service
+
+server.port=8082
+
+spring.kafka.consumer.bootstrap-servers=localhost:9092
+spring.kafka.consumer.group-id=stock
+spring.kafka.consumer.auto-offset-reset=earliest
+spring.kafka.consumer.key-deserializer=org.apache.kafka.common.serialization.StringDeserializer
+spring.kafka.consumer.value-deserializer=org.springframework.kafka.support.serializer.JsonDeserializer
+spring.kafka.template.default-topic=order_topics
+spring.kafka.consumer.properties.spring.json.trusted.packages=*
+
+
+package com.luv2code.service;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.stereotype.Service;
+
+import com.luv2code.dto.OrderEvent;
+
+@Service
+public class OrderConsumer {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(OrderConsumer.class);
+	
+	@KafkaListener(topics = "${spring.kafka.template.default-topic}" ,
+			groupId = "${spring.kafka.consumer.group-id}")
+	public void consume(OrderEvent event) {
+		LOGGER.info("order event recieved in stock service =>%s",event.toString());
+		System.out.println("order event recieved in stock service => "+event.toString());
+		
+		//save the order event into the database 
+	}
+}
+
+
+
+
+================================================================================================================================================================
+
+THE END ................
+
+
+
+
+
+
+
+		  
+		  
+
+
